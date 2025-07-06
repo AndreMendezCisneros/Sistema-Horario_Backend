@@ -120,8 +120,16 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # CELERY SETTINGS
-CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
+CELERY_BROKER_URL = 'memory://'  # Usar memoria en lugar de Redis
 CELERY_RESULT_BACKEND = 'rpc://'
+
+# CACHE SETTINGS (para métricas y auditoría)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
 
 
 # Internationalization
@@ -194,3 +202,23 @@ CORS_ALLOWED_ORIGINS = [
     # "http://192.168.18.30:3000",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# Configuración de Redis Cache
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
+
+# Usar Redis como backend de sesiones
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
+# Configuración de Celery con Redis
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+CELERY_CACHE_BACKEND = 'redis://127.0.0.1:6379/1'

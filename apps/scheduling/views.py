@@ -22,6 +22,11 @@ from .serializers import (
 from .service.schedule_generator import ScheduleGeneratorService
 from .service.conflict_validator import ConflictValidatorService
 from apps.academic_setup.models import PeriodoAcademico # Para la acción de generar
+from .metrics import MetricsManager
+from .audit import AuditManager
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 
 class GruposViewSet(viewsets.ModelViewSet):
     queryset = Grupos.objects.select_related(
@@ -192,3 +197,98 @@ class GeneracionHorarioView(viewsets.ViewSet):
         logger.info(f"Solicitud de exportación a Excel para periodo_id: {periodo_id} por usuario: {request.user.username if request.user.is_authenticated else 'Anónimo'}")
         # ... (Aquí iría la lógica de exportación a Excel) ...
         return Response({"message": "Funcionalidad de exportación a Excel pendiente de implementación detallada."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_metrics(request, periodo_id=None):
+    """Obtener métricas del sistema"""
+    try:
+        if periodo_id:
+            metrics = MetricsManager.get_metrics(periodo_id)
+        else:
+            metrics = MetricsManager.get_metrics()
+        
+        return Response({
+            'status': 'success',
+            'data': metrics
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_audit_logs(request, periodo_id=None):
+    """Obtener logs de auditoría"""
+    try:
+        limit = int(request.GET.get('limit', 50))
+        
+        if periodo_id:
+            audit_logs = AuditManager.get_audit_logs(periodo_id, limit)
+        else:
+            audit_logs = AuditManager.get_audit_logs(None, limit)
+        
+        return Response({
+            'status': 'success',
+            'data': audit_logs
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_audit_summary(request, periodo_id=None):
+    """Obtener resumen de auditoría"""
+    try:
+        if periodo_id:
+            summary = AuditManager.get_audit_summary(periodo_id)
+        else:
+            summary = AuditManager.get_audit_summary()
+        
+        return Response({
+            'status': 'success',
+            'data': summary
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_system_health(request):
+    """Obtener estado de salud del sistema"""
+    try:
+        # Métricas globales
+        global_metrics = MetricsManager.get_metrics()
+        
+        # Resumen de auditoría global
+        audit_summary = AuditManager.get_audit_summary()
+        
+        # Estado de salud
+        health_status = {
+            'status': 'healthy',
+            'timestamp': 'now',
+            'metrics': global_metrics,
+            'audit_summary': audit_summary
+        }
+        
+        return Response({
+            'status': 'success',
+            'data': health_status
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

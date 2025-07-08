@@ -156,7 +156,7 @@ class CarreraMateriasViewSet(viewsets.ModelViewSet):
 
     # Opcional: Filtrar por carrera, materia o ciclo
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().order_by('id')
         carrera_id = self.request.query_params.get('carrera_id')
         materia_id = self.request.query_params.get('materia_id')
         ciclo_id = self.request.query_params.get('ciclo_id')

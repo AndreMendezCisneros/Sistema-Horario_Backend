@@ -21,6 +21,7 @@ from .serializers import (
 )
 
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.pagination import PageNumberPagination
 
 # Nuevo ViewSet para TipoUnidadAcademica
 class TipoUnidadAcademicaViewSet(viewsets.ModelViewSet):
@@ -279,10 +280,16 @@ class TiposEspacioViewSet(viewsets.ModelViewSet):
     serializer_class = TiposEspacioSerializer
     permission_classes = [AllowAny]
 
+class EspaciosFisicosPagination(PageNumberPagination):
+    page_size = 100  # Valor por defecto aumentado
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
 class EspaciosFisicosViewSet(viewsets.ModelViewSet):
     queryset = EspaciosFisicos.objects.select_related('tipo_espacio', 'unidad').all()
     serializer_class = EspaciosFisicosSerializer
     permission_classes = [AllowAny]
+    pagination_class = EspaciosFisicosPagination
     def get_queryset(self):
         queryset = super().get_queryset()
         unidad_id = self.request.query_params.get('unidad_id')

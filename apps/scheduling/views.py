@@ -27,6 +27,9 @@ from .audit import AuditManager
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+import openpyxl
+from django.db import transaction
 
 class GruposViewSet(viewsets.ModelViewSet):
     queryset = Grupos.objects.select_related(
@@ -142,6 +145,7 @@ class ConfiguracionRestriccionesViewSet(viewsets.ModelViewSet):
 
 class GeneracionHorarioView(viewsets.ViewSet):
     permission_classes = [AllowAny] # Reemplaza AllowAny con un permiso adecuado
+    parser_classes = [MultiPartParser, FormParser]
 
     @action(detail=False, methods=['post'], url_path='generar-horario-automatico')
     def generar_horario(self, request):
@@ -197,6 +201,122 @@ class GeneracionHorarioView(viewsets.ViewSet):
         logger.info(f"Solicitud de exportación a Excel para periodo_id: {periodo_id} por usuario: {request.user.username if request.user.is_authenticated else 'Anónimo'}")
         # ... (Aquí iría la lógica de exportación a Excel) ...
         return Response({"message": "Funcionalidad de exportación a Excel pendiente de implementación detallada."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+    @action(detail=False, methods=['post'], url_path='importar-disponibilidad-excel')
+    def importar_disponibilidad_excel(self, request):
+        """
+        Importa la disponibilidad del docente desde un archivo Excel.
+        Aplica la regla: si hay al menos un '1' en cualquier bloque de un turno y día, todos los bloques de ese turno y día se marcan como disponibles; si todos están vacíos o 0, todos se marcan como no disponibles.
+        Registra el id del usuario que subió el archivo si está autenticado.
+        """
+        file = request.FILES.get('file')
+        periodo_id = request.data.get('periodo_id')
+        docente_id = request.data.get('docente_id')
+        usuario = request.user if request.user and request.user.is_authenticated else None
+        if not file or not periodo_id or not docente_id:
+            return Response({'error': 'Faltan datos requeridos (archivo, periodo_id, docente_id).'}, status=status.HTTP_400_BAD_REQUEST)
+        print("Archivo recibido:", file)
+        print("Nombre:", getattr(file, 'name', None))
+        print("Tamaño:", getattr(file, 'size', None))
+        print("Tipo:", getattr(file, 'content_type', None))
+        try:
+            wb = openpyxl.load_workbook(file)
+            print("Workbook cargado correctamente.")
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            print("Total de filas leídas:", len(rows))
+            headers = [str(h).strip() for h in rows[0]]
+            print("Encabezados detectados:", headers)
+            idx_bloque = headers.index('Bloque horario')
+            idx_turno = headers.index('Turno')
+            dias_indices = [(i, headers[i]) for i in range(len(headers)) if headers[i] in ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']]
+        except Exception as e:
+            print("Error al leer el archivo Excel:", str(e))
+            return Response({'error': f'Error leyendo el archivo Excel: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        # Construir estructura: {dia: {turno: [fila_index, ...]}}
+        turnos = ['Mañana','Tarde','Noche']
+        dias_map = {'Lunes':1,'Martes':2,'Miércoles':3,'Jueves':4,'Viernes':5,'Sábado':6}
+        errores = []
+        bloques_por_turno_dia = {dia:{} for dia in dias_map.values()}
+        for row_idx, row in enumerate(rows[1:], start=1):
+            # Validaciones y llenado de errores (como antes)
+            if not row or len(row) < 2:  # Debe tener al menos 'Bloque horario' y 'Turno'
+                errores.append(f'Fila {row_idx+1}: Fila vacía o faltan columnas.')
+                continue
+            if idx_bloque >= len(row) or idx_turno >= len(row):
+                errores.append(f'Fila {row_idx+1}: Faltan columnas para Bloque horario o Turno.')
+                continue
+            bloque_hora = row[idx_bloque]
+            turno = row[idx_turno]
+            if not isinstance(bloque_hora, str) or not (len(bloque_hora) == 8 and bloque_hora.count(':') == 2):
+                errores.append(f'Fila {row_idx+1}: Formato de bloque horario inválido. Debe ser HH:MM:SS')
+            if turno not in ['Mañana','Tarde','Noche']:
+                errores.append(f'Fila {row_idx+1}: Turno inválido. Solo se permite Mañana, Tarde o Noche.')
+            for idx, dia_nombre in dias_indices:
+                if idx >= len(row):
+                    continue
+                valor = row[idx]
+                if valor not in (None, '', 1, '1', 0, '0'):
+                    errores.append(f'Fila {row_idx+1}, columna {dia_nombre}: Solo se permite 1, 0 o vacío.')
+        if errores:
+            return Response({'errores': errores}, status=status.HTTP_400_BAD_REQUEST)
+        # Solo construir bloques_por_turno_dia y procesar si no hay errores
+        bloques_por_turno_dia = {dia:{} for dia in dias_map.values()}
+        for row_idx, row in enumerate(rows[1:], start=1):
+            if not row or len(row) < 2:
+                continue
+            if idx_bloque >= len(row) or idx_turno >= len(row):
+                continue
+            bloque_hora = row[idx_bloque]
+            turno = row[idx_turno]
+            for idx, dia_nombre in dias_indices:
+                if idx >= len(row):
+                    continue
+                dia = dias_map[dia_nombre]
+                if turno not in bloques_por_turno_dia[dia]:
+                    bloques_por_turno_dia[dia][turno] = []
+                bloques_por_turno_dia[dia][turno].append((row_idx, idx, bloque_hora))
+        # Determinar disponibilidad por turno y día
+        disponibilidad_final = []
+        for dia, turnos_dict in bloques_por_turno_dia.items():
+            for turno, celdas in turnos_dict.items():
+                # Si hay al menos un 1, todos disponibles; si todos vacíos/0, todos no disponibles
+                hay_disponible = any(str(rows[row_idx][col_idx]).strip() == '1' for row_idx, col_idx, _ in celdas)
+                for row_idx, col_idx, bloque_hora in celdas:
+                    disponibilidad_final.append({
+                        'dia': dia,
+                        'turno': turno,
+                        'bloque_hora': bloque_hora,
+                        'disponible': hay_disponible
+                    })
+        # Mapear bloque_hora y turno a bloque_horario_id
+        from .models import BloquesHorariosDefinicion
+        bloques_db = BloquesHorariosDefinicion.objects.all()
+        bloque_map = {}
+        for b in bloques_db:
+            clave = (str(b.hora_inicio), b.turno)
+            bloque_map[clave] = b.bloque_def_id
+        # Registrar en la base de datos
+        from .models import DisponibilidadDocentes
+        with transaction.atomic():
+            for disp in disponibilidad_final:
+                clave_bloque = (str(disp['bloque_hora']).split(' a ')[0],
+                                'M' if disp['turno']=='Mañana' else 'T' if disp['turno']=='Tarde' else 'N')
+                bloque_id = bloque_map.get(clave_bloque)
+                if not bloque_id:
+                    continue
+                obj, created = DisponibilidadDocentes.objects.update_or_create(
+                    docente_id=docente_id,
+                    periodo_id=periodo_id,
+                    dia_semana=disp['dia'],
+                    bloque_horario_id=bloque_id,
+                    defaults={
+                        'esta_disponible': disp['disponible'],
+                        'origen_carga': 'EXCEL',
+                        'usuario_registro': usuario if hasattr(obj, 'usuario_registro') else None
+                    }
+                )
+        return Response({'message': f'Se importaron {len(disponibilidad_final)} registros de disponibilidad.'}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

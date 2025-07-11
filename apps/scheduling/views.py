@@ -209,29 +209,70 @@ class GeneracionHorarioView(viewsets.ViewSet):
         Aplica la regla: si hay al menos un '1' en cualquier bloque de un turno y día, todos los bloques de ese turno y día se marcan como disponibles; si todos están vacíos o 0, todos se marcan como no disponibles.
         Registra el id del usuario que subió el archivo si está autenticado.
         """
+        print("=== INICIO IMPORTAR DISPONIBILIDAD EXCEL ===")
+        print("Request data:", request.data)
+        print("Request FILES:", request.FILES)
+        print("Request user:", request.user)
+        
         file = request.FILES.get('file')
         periodo_id = request.data.get('periodo_id')
         docente_id = request.data.get('docente_id')
         usuario = request.user if request.user and request.user.is_authenticated else None
+        
+        print("File:", file)
+        print("Periodo ID:", periodo_id)
+        print("Docente ID:", docente_id)
+        print("Usuario:", usuario)
+        
         if not file or not periodo_id or not docente_id:
+            print("ERROR: Faltan datos requeridos")
+            print("File presente:", bool(file))
+            print("Periodo ID presente:", bool(periodo_id))
+            print("Docente ID presente:", bool(docente_id))
             return Response({'error': 'Faltan datos requeridos (archivo, periodo_id, docente_id).'}, status=status.HTTP_400_BAD_REQUEST)
         print("Archivo recibido:", file)
         print("Nombre:", getattr(file, 'name', None))
         print("Tamaño:", getattr(file, 'size', None))
         print("Tipo:", getattr(file, 'content_type', None))
+        
         try:
+            print("Intentando cargar workbook...")
             wb = openpyxl.load_workbook(file)
             print("Workbook cargado correctamente.")
             ws = wb.active
+            print("Worksheet activo:", ws.title)
             rows = list(ws.iter_rows(values_only=True))
             print("Total de filas leídas:", len(rows))
+            
+            if not rows:
+                print("ERROR: No hay filas en el archivo")
+                return Response({'error': 'El archivo Excel está vacío.'}, status=status.HTTP_400_BAD_REQUEST)
+            
             headers = [str(h).strip() for h in rows[0]]
             print("Encabezados detectados:", headers)
+            
+            # Validar que existan los encabezados requeridos
+            if 'Bloque horario' not in headers:
+                print("ERROR: No se encontró columna 'Bloque horario'")
+                return Response({'error': 'El archivo debe tener una columna llamada "Bloque horario".'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if 'Turno' not in headers:
+                print("ERROR: No se encontró columna 'Turno'")
+                return Response({'error': 'El archivo debe tener una columna llamada "Turno".'}, status=status.HTTP_400_BAD_REQUEST)
+            
             idx_bloque = headers.index('Bloque horario')
             idx_turno = headers.index('Turno')
             dias_indices = [(i, headers[i]) for i in range(len(headers)) if headers[i] in ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']]
+            
+            print("Índice bloque:", idx_bloque)
+            print("Índice turno:", idx_turno)
+            print("Días encontrados:", dias_indices)
+            
         except Exception as e:
             print("Error al leer el archivo Excel:", str(e))
+            import traceback
+            print("Traceback completo:")
+            traceback.print_exc()
             return Response({'error': f'Error leyendo el archivo Excel: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
         # Construir estructura: {dia: {turno: [fila_index, ...]}}
         turnos = ['Mañana','Tarde','Noche']
@@ -289,19 +330,22 @@ class GeneracionHorarioView(viewsets.ViewSet):
                         'bloque_hora': bloque_hora,
                         'disponible': hay_disponible
                     })
-        # Mapear bloque_hora y turno a bloque_horario_id
+        # Mapear bloque_hora, turno y día a bloque_horario_id
         from .models import BloquesHorariosDefinicion
         bloques_db = BloquesHorariosDefinicion.objects.all()
         bloque_map = {}
         for b in bloques_db:
-            clave = (str(b.hora_inicio), b.turno)
+            clave = (str(b.hora_inicio), b.turno, b.dia_semana)
             bloque_map[clave] = b.bloque_def_id
         # Registrar en la base de datos
         from .models import DisponibilidadDocentes
         with transaction.atomic():
             for disp in disponibilidad_final:
-                clave_bloque = (str(disp['bloque_hora']).split(' a ')[0],
-                                'M' if disp['turno']=='Mañana' else 'T' if disp['turno']=='Tarde' else 'N')
+                clave_bloque = (
+                    str(disp['bloque_hora']),
+                    'M' if disp['turno']=='Mañana' else 'T' if disp['turno']=='Tarde' else 'N',
+                    disp['dia']
+                )
                 bloque_id = bloque_map.get(clave_bloque)
                 if not bloque_id:
                     continue
@@ -312,10 +356,11 @@ class GeneracionHorarioView(viewsets.ViewSet):
                     bloque_horario_id=bloque_id,
                     defaults={
                         'esta_disponible': disp['disponible'],
-                        'origen_carga': 'EXCEL',
-                        'usuario_registro': usuario if hasattr(obj, 'usuario_registro') else None
+                        'origen_carga': 'EXCEL'
                     }
                 )
+        print("=== FINALIZADO IMPORTAR DISPONIBILIDAD EXCEL ===")
+        print(f"Registros procesados: {len(disponibilidad_final)}")
         return Response({'message': f'Se importaron {len(disponibilidad_final)} registros de disponibilidad.'}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])

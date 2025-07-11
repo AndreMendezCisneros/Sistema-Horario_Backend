@@ -19,7 +19,8 @@ from .serializers import (
     RolesSerializer,
     GroupSerializer,
     CustomTokenObtainPairSerializer, # <-- ¡Este es el nombre correcto!
-    DocenteEspecialidadesSimpleSerializer
+    DocenteEspecialidadesSimpleSerializer,
+    UserUpdateSerializer, # <--- importar el nuevo serializer
 )
 
 # Importar modelos necesarios para el filtrado avanzado
@@ -34,6 +35,13 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     permission_classes = [AllowAny]   #Permite acceso sin autenticación
     #ppermission_classes = [permissions.IsAdminUser] # Solo admins pueden listar/modificar todos los usuarios
+
+    def get_serializer_class(self):
+        if self.action in ['update', 'partial_update']:
+            return UserUpdateSerializer
+        if self.action == 'create':
+            return UserRegistrationSerializer
+        return UserSerializer
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def register(self, request):

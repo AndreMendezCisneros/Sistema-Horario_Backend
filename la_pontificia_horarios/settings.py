@@ -94,7 +94,7 @@ DATABASES = {
         'USER': os.environ.get('DB_USER', 'postgres'),
         'PASSWORD': os.environ.get('DB_PASSWORD', 'root'),
         'HOST': os.environ.get('DB_HOST', 'localhost'), # o la IP de tu servidor PostgreSQL
-        'PORT': os.environ.get('DB_PORT', '5432'),
+        'PORT': os.environ.get('DB_PORT', '5434'),
         'OPTIONS': {
             'client_encoding': 'UTF8',
             'options': '-c client_encoding=utf8',

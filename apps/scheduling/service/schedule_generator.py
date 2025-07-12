@@ -262,6 +262,23 @@ class ScheduleGeneratorService:
         # random.shuffle(candidatos)
         return sorted(candidatos, key=lambda e: abs(e.capacidad - num_estudiantes))
 
+    def _get_max_horas_dia_grupo(self, grupo_id):
+        """
+        Devuelve el valor máximo de horas por día para un grupo según la restricción activa en la tabla.
+        Si no hay restricción específica, devuelve None.
+        """
+        max_horas = None
+        for r in self.all_restricciones_config:
+            if r.codigo_restriccion == "MAX_HORAS_DIA_GRUPO" and r.esta_activa:
+                # Si la restricción es GLOBAL o específica para el grupo
+                if r.tipo_aplicacion == "GLOBAL" or (r.tipo_aplicacion == "GRUPO" and r.entidad_id_1 == grupo_id):
+                    try:
+                        max_horas = int(r.valor_parametro)
+                        break
+                    except (TypeError, ValueError):
+                        continue
+        return max_horas
+
     def _find_best_assignment_for_session(self, clase: ClaseParaProgramar, bloques_del_turno):
         """Intenta encontrar el mejor docente, espacio y bloque para una sesión de una clase."""
         grupo = clase.grupo
@@ -269,10 +286,21 @@ class ScheduleGeneratorService:
         mejor_opcion = None
         menor_penalizacion = float('inf')
 
+        max_horas_dia_grupo = self._get_max_horas_dia_grupo(grupo.grupo_id)
+
         for bloque in bloques_del_turno:
             # 1. Verificar si el bloque ya está ocupado para el grupo
             if bloque.bloque_def_id in self.horario_parcial_grupos.get(grupo.grupo_id, {}).get(bloque.dia_semana, []):
                 continue
+
+            # --- NUEVA LÓGICA: Verificar máximo de horas por día para el grupo ---
+            if max_horas_dia_grupo is not None:
+                bloques_asignados = self.horario_parcial_grupos[grupo.grupo_id][bloque.dia_semana]
+                # Cada bloque cuenta como HORAS_ACADEMICAS_POR_SESION_ESTANDAR horas
+                total_horas = len(bloques_asignados) * HORAS_ACADEMICAS_POR_SESION_ESTANDAR
+                if total_horas + HORAS_ACADEMICAS_POR_SESION_ESTANDAR > max_horas_dia_grupo:
+                    continue
+            # --- FIN NUEVA LÓGICA ---
 
             # 2. Obtener candidatos (docentes y espacios)
             docentes_candidatos = self._get_docentes_candidatos(materia, grupo, bloque)

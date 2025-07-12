@@ -61,7 +61,8 @@ class GruposSerializer(serializers.ModelSerializer):
         model = Grupos
         fields = ['grupo_id', 'codigo_grupo', 'materias', 'materias_detalle', 'carrera', 'carrera_detalle',
                   'periodo', 'periodo_nombre', 'numero_estudiantes_estimado', 'turno_preferente',
-                  'docente_asignado_directamente', 'docente_asignado_directamente_nombre']
+                  'docente_asignado_directamente', 'docente_asignado_directamente_nombre',
+                  'ciclo_semestral']
 
 class BloquesHorariosDefinicionSerializer(serializers.ModelSerializer):
     dia_semana_display = serializers.CharField(source='get_dia_semana_display', read_only=True, allow_null=True)

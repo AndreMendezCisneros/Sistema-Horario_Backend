@@ -23,12 +23,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3d4np#(eh956^!$%0@0snz-ksri4=1y(wx^gwiu-i@)l!_7x6#'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'pon-una-clave-secreta-fuerte-aqui')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '.onrender.com').split(',')
 
 
 # Application definition
@@ -146,6 +146,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -198,12 +199,7 @@ SIMPLE_JWT = {
 # Opcional: Descomenta CORS_ALLOW_ALL_ORIGINS = True para pruebas rápidas, pero úsalo con precaución en producción.
 # CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8080",  # <--- Asumiendo que tu frontend Vite se ejecuta en este puerto
-    "http://127.0.0.1:8080",  # <--- Para acceso vía IP local
-    # Si tu frontend se ejecuta en otros puertos o IPs, añádelos aquí:
-    # "http://localhost:3000",
-    # "http://192.168.18.30:5173",
-    # "http://192.168.18.30:3000",
+    "https://sistema-horario-frontend.vercel.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
